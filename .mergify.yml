@@ -3,7 +3,7 @@ pull_request_rules:
     conditions:
       - author=tkawachi
       - check-success~=build
-      - check-success~=Lint
+      - check-success~=Lint Code Base
       - check-success~=security/snyk
     actions:
       merge:
