@@ -21,6 +21,14 @@ func FirstNonEmptyString(strings ...string) string {
 	return ""
 }
 
+type Frederica struct {
+	slackClient  *slack.Client
+	socketClient *socketmode.Client
+	gptClient    *gogpt.Client
+	botID        string
+	preludes     []gogpt.ChatCompletionMessage
+}
+
 func convertConversation(messages []slack.Message, botID string) []gogpt.ChatCompletionMessage {
 	var conversation []gogpt.ChatCompletionMessage
 	for _, msg := range messages {
@@ -55,9 +63,9 @@ func truncateMessages(messages []gogpt.ChatCompletionMessage, maxTokens int) []g
 	return messages
 }
 
-func getLatestMessages(slackAPI *slack.Client, channelID, ts, botID string, maxTokens int) ([]gogpt.ChatCompletionMessage, error) {
+func (fred *Frederica) getLatestMessages(channelID, ts string, maxTokens int) ([]gogpt.ChatCompletionMessage, error) {
 	log.Println("getting replies", channelID, ts)
-	replies, _, _, err := slackAPI.GetConversationReplies(&slack.GetConversationRepliesParameters{
+	replies, _, _, err := fred.slackClient.GetConversationReplies(&slack.GetConversationRepliesParameters{
 		ChannelID: channelID,
 		Timestamp: ts,
 	})
@@ -71,12 +79,12 @@ func getLatestMessages(slackAPI *slack.Client, channelID, ts, botID string, maxT
 	for _, msg := range replies {
 		log.Printf("%s: %s %v %v", msg.User, msg.Text, msg.ThreadTimestamp, msg.Timestamp)
 	}
-	converted := convertConversation(replies, botID)
+	converted := convertConversation(replies, fred.botID)
 	return truncateMessages(converted, maxTokens), nil
 }
 
-func getMessage(slackAPI *slack.Client, channelID, ts string) (*slack.Message, error) {
-	replies, _, _, err := slackAPI.GetConversationReplies(&slack.GetConversationRepliesParameters{
+func (fred *Frederica) getMessage(channelID, ts string) (*slack.Message, error) {
+	replies, _, _, err := fred.slackClient.GetConversationReplies(&slack.GetConversationRepliesParameters{
 		ChannelID: channelID,
 		Timestamp: ts,
 		Limit:     1,
@@ -96,85 +104,84 @@ func logMessages(messages []gogpt.ChatCompletionMessage) {
 	}
 }
 
-func handleOsieteAI(slackAPI *slack.Client, gptClient *gogpt.Client, ev *slackevents.ReactionAddedEvent, preludeMessage gogpt.ChatCompletionMessage, botID string) error {
+func (fred *Frederica) handleOsieteAI(ev *slackevents.ReactionAddedEvent) error {
 
 	channelID := ev.Item.Channel
-	srcMessage, err := getMessage(slackAPI, channelID, ev.Item.Timestamp)
+	srcMessage, err := fred.getMessage(channelID, ev.Item.Timestamp)
 	if err != nil {
 		return fmt.Errorf("failed getting message: %v", err)
 	}
 
 	ts := FirstNonEmptyString(srcMessage.ThreadTimestamp, srcMessage.Timestamp)
-	truncated, err := getLatestMessages(slackAPI, channelID, ts, botID, 3000)
+	truncated, err := fred.getLatestMessages(channelID, ts, 3000)
 	if err != nil {
 		return fmt.Errorf("failed getting latest messages: %v", err)
 	}
 	// prepend prelude to truncated
-	truncated = append([]gogpt.ChatCompletionMessage{preludeMessage}, truncated...)
+	truncated = append(fred.preludes, truncated...)
 	truncated = append(truncated, gogpt.ChatCompletionMessage{
 		Role:    "user",
 		Content: srcMessage.Text,
 	})
 	logMessages(truncated)
-	completion, err := createChatCompletion(context.Background(), truncated, gptClient)
+	completion, err := createChatCompletion(context.Background(), truncated, fred.gptClient)
 	if err != nil {
 		return fmt.Errorf("failed creating chat completion: %v", err)
 	}
 	completion = fmt.Sprintf("<@%s>\n\n%s", ev.User, completion)
-	_, _, err = slackAPI.PostMessage(channelID, slack.MsgOptionText(completion, false), slack.MsgOptionTS(ts))
+	_, _, err = fred.slackClient.PostMessage(channelID, slack.MsgOptionText(completion, false), slack.MsgOptionTS(ts))
 	if err != nil {
 		return fmt.Errorf("failed posting message: %v", err)
 	}
 	return nil
 }
 
-func handleMention(slackAPI *slack.Client, gptClient *gogpt.Client, ev *slackevents.AppMentionEvent, preludeMessage gogpt.ChatCompletionMessage, botID string) error {
-	if ev.BotID == botID {
+func (fred *Frederica) handleMention(ev *slackevents.AppMentionEvent) error {
+	if ev.BotID == fred.botID {
 		return nil
 	}
 	ts := FirstNonEmptyString(ev.ThreadTimeStamp, ev.TimeStamp)
-	truncated, err := getLatestMessages(slackAPI, ev.Channel, ts, botID, 3000)
+	truncated, err := fred.getLatestMessages(ev.Channel, ts, 3000)
 	if err != nil {
 		return fmt.Errorf("failed getting latest messages: %v", err)
 	}
 	// prepend prelude to truncated
-	truncated = append([]gogpt.ChatCompletionMessage{preludeMessage}, truncated...)
+	truncated = append(fred.preludes, truncated...)
 	logMessages(truncated)
-	completion, err := createChatCompletion(context.Background(), truncated, gptClient)
+	completion, err := createChatCompletion(context.Background(), truncated, fred.gptClient)
 	if err != nil {
 		return fmt.Errorf("failed creating chat completion: %v", err)
 	}
 
 	log.Printf("completion: %s", completion)
 
-	_, _, err = slackAPI.PostMessage(ev.Channel, slack.MsgOptionText(completion, false), slack.MsgOptionTS(ts))
+	_, _, err = fred.slackClient.PostMessage(ev.Channel, slack.MsgOptionText(completion, false), slack.MsgOptionTS(ts))
 	if err != nil {
 		return fmt.Errorf("failed posting message: %v", err)
 	}
 	return nil
 }
 
-func handleEventTypeEventsAPI(slackAPI *slack.Client, socketClient *socketmode.Client, gptClient *gogpt.Client, evt *socketmode.Event,
-	preludeMessage gogpt.ChatCompletionMessage, botID string) error {
+func (fred *Frederica) handleEventTypeEventsAPI(evt *socketmode.Event) error {
 	eventsAPIEvent, ok := evt.Data.(slackevents.EventsAPIEvent)
 	if !ok {
 		log.Printf("Ignored %+v\n", evt)
 		return nil
 	}
 	log.Printf("Event received: %+v\n", eventsAPIEvent)
-	socketClient.Ack(*evt.Request)
+	fred.socketClient.Ack(*evt.Request)
 	switch eventsAPIEvent.Type {
 	case slackevents.CallbackEvent:
 		innerEvent := eventsAPIEvent.InnerEvent
 		switch ev := innerEvent.Data.(type) {
 		case *slackevents.AppMentionEvent:
-			err := handleMention(slackAPI, gptClient, ev, preludeMessage, botID)
+			err := fred.handleMention(ev)
 			if err != nil {
 				return fmt.Errorf("failed handling mention: %v", err)
 			}
 		case *slackevents.ReactionAddedEvent:
 			if ev.Item.Type == "message" && ev.Reaction == "osiete_ai" {
-				err := handleOsieteAI(slackAPI, gptClient, ev, preludeMessage, botID)
+				err := fred.handleOsieteAI(ev)
 				if err != nil {
 					return fmt.Errorf("failed handling osiete_ai: %v", err)
 				}
@@ -183,9 +190,28 @@ func handleEventTypeEventsAPI(slackAPI *slack.Client, socketClient *socketmode.C
 			fmt.Printf("user %q joined to channel %q", ev.User, ev.Channel)
 		}
 	default:
-		socketClient.Debugf("unsupported Events API event received")
+		fred.socketClient.Debugf("unsupported Events API event received")
 	}
 	return nil
+}
+
+func (fred *Frederica) eventLoop() {
+	for evt := range fred.socketClient.Events {
+		switch evt.Type {
+		case socketmode.EventTypeConnecting:
+			log.Println("Connecting to Slack with Socket Mode...")
+		case socketmode.EventTypeConnectionError:
+			log.Println("Connection failed. Retrying later...")
+		case socketmode.EventTypeConnected:
+			log.Println("Connected to Slack with Socket Mode.")
+		case socketmode.EventTypeEventsAPI:
+			err := fred.handleEventTypeEventsAPI(&evt)
+			if err != nil {
+				log.Printf("failed handling event type events api: %v\n", err)
+				continue
+			}
+		}
+	}
 }
 
 func main() {
@@ -210,15 +236,15 @@ func main() {
 		Content: "assistant の名前はフレデリカです",
 	}
 
-	slackAPI := slack.New(
+	slackClient := slack.New(
 		botToken,
 		slack.OptionDebug(false),
 		slack.OptionLog(log.New(os.Stdout, "api: ", log.Lshortfile|log.LstdFlags)),
 		slack.OptionAppLevelToken(slackAppToken),
 	)
 
-	slackClient := socketmode.New(
-		slackAPI,
+	socketClient := socketmode.New(
+		slackClient,
 		socketmode.OptionDebug(false),
 		socketmode.OptionLog(log.New(os.Stdout, "socketmode: ", log.Lshortfile|log.LstdFlags)),
 	)
@@ -229,26 +255,17 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
+	fred := &Frederica{
+		slackClient:  slackClient,
+		socketClient: socketClient,
+		gptClient:    gptClient,
+		botID:        authTestResponse.BotID,
+		preludes:     []gogpt.ChatCompletionMessage{preludeMessage},
+	}
 
-	go func() {
-		for evt := range slackClient.Events {
-			switch evt.Type {
-			case socketmode.EventTypeConnecting:
-				fmt.Println("Connecting to Slack with Socket Mode...")
-			case socketmode.EventTypeConnectionError:
-				fmt.Println("Connection failed. Retrying later...")
-			case socketmode.EventTypeConnected:
-				fmt.Println("Connected to Slack with Socket Mode.")
-			case socketmode.EventTypeEventsAPI:
-				err = handleEventTypeEventsAPI(slackAPI, slackClient, gptClient, &evt, preludeMessage, authTestResponse.BotID)
-				if err != nil {
-					log.Printf("failed handling event type events api: %v\n", err)
-					continue
-				}
-			}
-		}
-	}()
-	err = slackClient.Run()
+	go fred.eventLoop()
+
+	err = socketClient.Run()
 	if err != nil {
 		panic(fmt.Errorf("failed running slack client: %w", err))
 	}
