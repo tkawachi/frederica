@@ -6,6 +6,7 @@ import (
 	"log"
 	"os"
 
+	tokenizer "github.com/samber/go-gpt-3-encoder"
 	gogpt "github.com/sashabaranov/go-gpt3"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
@@ -25,6 +26,7 @@ type Frederica struct {
 	slackClient  *slack.Client
 	socketClient *socketmode.Client
 	gptClient    *gogpt.Client
+	encoder      *tokenizer.Encoder
 	botID        string
 	preludes     []gogpt.ChatCompletionMessage
 }
@@ -51,16 +53,21 @@ func convertConversation(messages []slack.Message, botID string) []gogpt.ChatCom
 	return conversation
 }
 
-func truncateMessages(messages []gogpt.ChatCompletionMessage, maxTokens int) []gogpt.ChatCompletionMessage {
+func (fred *Frederica) truncateMessages(messages []gogpt.ChatCompletionMessage, maxTokens int) ([]gogpt.ChatCompletionMessage, error) {
 	// keep latest messages to fit maxTokens
 	var totalTokens int
 	for i := len(messages) - 1; i >= 0; i-- {
-		totalTokens += len(messages[i].Content)
+		content := messages[i].Content
+		encoded, err := fred.encoder.Encode(content)
+		if err != nil {
+			return nil, fmt.Errorf("failed encoding message %s: %v", content, err)
+		}
+		totalTokens += len(encoded)
 		if totalTokens > maxTokens {
-			return messages[i+1:]
+			return messages[i+1:], nil
 		}
 	}
-	return messages
+	return messages, nil
 }
 
 func (fred *Frederica) getLatestMessages(channelID, ts string, maxTokens int) ([]gogpt.ChatCompletionMessage, error) {
@@ -80,7 +87,7 @@ func (fred *Frederica) getLatestMessages(channelID, ts string, maxTokens int) ([
 		log.Printf("%s: %s %v %v", msg.User, msg.Text, msg.ThreadTimestamp, msg.Timestamp)
 	}
 	converted := convertConversation(replies, fred.botID)
-	return truncateMessages(converted, maxTokens), nil
+	return fred.truncateMessages(converted, maxTokens)
 }
 
 func (fred *Frederica) getMessage(channelID, ts string) (*slack.Message, error) {
@@ -226,6 +233,11 @@ func (fred *Frederica) eventLoop() {
 }
 
 func main() {
+	encoder, err := tokenizer.NewEncoder()
+	if err != nil {
+		panic(err)
+	}
+
 	// read from environmental variable
 	openaiAPIKey := os.Getenv("OPENAI_API_KEY")
 	if openaiAPIKey == "" {
@@ -270,6 +282,7 @@ func main() {
 		slackClient:  slackClient,
 		socketClient: socketClient,
 		gptClient:    gptClient,
+		encoder:      encoder,
 		botID:        authTestResponse.BotID,
 		preludes:     []gogpt.ChatCompletionMessage{preludeMessage},
 	}
