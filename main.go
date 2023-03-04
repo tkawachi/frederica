@@ -154,6 +154,40 @@ func handleMention(slackAPI *slack.Client, gptClient *gogpt.Client, ev *slackeve
 	return nil
 }
 
+func handleEventTypeEventsAPI(slackAPI *slack.Client, socketClient *socketmode.Client, gptClient *gogpt.Client, evt *socketmode.Event,
+	preludeMessage gogpt.ChatCompletionMessage, botID string) error {
+	eventsAPIEvent, ok := evt.Data.(slackevents.EventsAPIEvent)
+	if !ok {
+		log.Printf("Ignored %+v\n", evt)
+		return nil
+	}
+	log.Printf("Event received: %+v\n", eventsAPIEvent)
+	socketClient.Ack(*evt.Request)
+	switch eventsAPIEvent.Type {
+	case slackevents.CallbackEvent:
+		innerEvent := eventsAPIEvent.InnerEvent
+		switch ev := innerEvent.Data.(type) {
+		case *slackevents.AppMentionEvent:
+			err := handleMention(slackAPI, gptClient, ev, preludeMessage, botID)
+			if err != nil {
+				return fmt.Errorf("failed handling mention: %v", err)
+			}
+		case *slackevents.ReactionAddedEvent:
+			if ev.Item.Type == "message" && ev.Reaction == "osiete_ai" {
+				err := handleOsieteAI(slackAPI, gptClient, ev, preludeMessage, botID)
+				if err != nil {
+					return fmt.Errorf("failed handling osiete_ai: %v", err)
+				}
+			}
+		case *slackevents.MemberJoinedChannelEvent:
+			fmt.Printf("user %q joined to channel %q", ev.User, ev.Channel)
+		}
+	default:
+		socketClient.Debugf("unsupported Events API event received")
+	}
+	return nil
+}
+
 func main() {
 	// read from environmental variable
 	openaiAPIKey := os.Getenv("OPENAI_API_KEY")
@@ -202,40 +236,14 @@ func main() {
 			case socketmode.EventTypeConnecting:
 				fmt.Println("Connecting to Slack with Socket Mode...")
 			case socketmode.EventTypeConnectionError:
-				fmt.Printf("Connection failed. Retrying later...")
+				fmt.Println("Connection failed. Retrying later...")
 			case socketmode.EventTypeConnected:
 				fmt.Println("Connected to Slack with Socket Mode.")
 			case socketmode.EventTypeEventsAPI:
-				eventsAPIEvent, ok := evt.Data.(slackevents.EventsAPIEvent)
-				if !ok {
-					fmt.Printf("Ignored %+v\n", evt)
+				err := handleEventTypeEventsAPI(slackAPI, slackClient, gptClient, &evt, preludeMessage, authTestResponse.BotID)
+				if err != nil {
+					log.Printf("failed handling event type events api: %v\n", err)
 					continue
-				}
-				fmt.Printf("Event received: %+v\n", eventsAPIEvent)
-				slackClient.Ack(*evt.Request)
-				switch eventsAPIEvent.Type {
-				case slackevents.CallbackEvent:
-					innerEvent := eventsAPIEvent.InnerEvent
-					switch ev := innerEvent.Data.(type) {
-					case *slackevents.AppMentionEvent:
-						err = handleMention(slackAPI, gptClient, ev, preludeMessage, authTestResponse.BotID)
-						if err != nil {
-							log.Printf("failed handling mention: %v", err)
-							continue
-						}
-					case *slackevents.ReactionAddedEvent:
-						if ev.Item.Type == "message" && ev.Reaction == "osiete_ai" {
-							err = handleOsieteAI(slackAPI, gptClient, ev, preludeMessage, authTestResponse.BotID)
-							if err != nil {
-								log.Printf("failed handling osiete_ai: %v", err)
-								continue
-							}
-						}
-					case *slackevents.MemberJoinedChannelEvent:
-						fmt.Printf("user %q joined to channel %q", ev.User, ev.Channel)
-					}
-				default:
-					slackClient.Debugf("unsupported Events API event received")
 				}
 			}
 		}
