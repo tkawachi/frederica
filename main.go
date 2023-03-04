@@ -3,12 +3,13 @@ package main
 import (
 	"context"
 	"fmt"
+	"log"
+	"os"
+
 	gogpt "github.com/sashabaranov/go-gpt3"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 	"github.com/slack-go/slack/socketmode"
-	"log"
-	"os"
 )
 
 func FirstNonEmptyString(strings ...string) string {
@@ -226,7 +227,10 @@ func main() {
 			}
 		}
 	}()
-	slackClient.Run()
+	err = slackClient.Run()
+	if err != nil {
+		panic(fmt.Errorf("failed running slack client: %w", err))
+	}
 }
 
 func createChatCompletion(messages []gogpt.ChatCompletionMessage, ctx context.Context, c *gogpt.Client) (string, error) {
