@@ -131,14 +131,26 @@ func (fred *Frederica) handleOsieteAI(ev *slackevents.ReactionAddedEvent) error 
 	logMessages(truncated)
 	completion, err := createChatCompletion(context.Background(), truncated, fred.gptClient)
 	if err != nil {
+		fred.postErrorMessage(channelID, ts)
 		return fmt.Errorf("failed creating chat completion: %v", err)
 	}
 	completion = fmt.Sprintf("<@%s>\n\n%s", ev.User, completion)
-	_, _, err = fred.slackClient.PostMessage(channelID, slack.MsgOptionText(completion, false), slack.MsgOptionTS(ts))
+	return fred.postOnThread(channelID, completion, ts)
+}
+
+func (fred *Frederica) postOnThread(channelID, message, ts string) error {
+	_, _, err := fred.slackClient.PostMessage(channelID, slack.MsgOptionText(message, false), slack.MsgOptionTS(ts))
 	if err != nil {
 		return fmt.Errorf("failed posting message: %v", err)
 	}
 	return nil
+}
+
+func (fred *Frederica) postErrorMessage(channelID, ts string) {
+	err := fred.postOnThread(channelID, "Failed to access OpenAI API. Try again later.", ts)
+	if err != nil {
+		log.Printf("failed to access OpenAI API: %v\n", err)
+	}
 }
 
 func (fred *Frederica) handleMention(ev *slackevents.AppMentionEvent) error {
@@ -155,13 +167,10 @@ func (fred *Frederica) handleMention(ev *slackevents.AppMentionEvent) error {
 	logMessages(truncated)
 	completion, err := createChatCompletion(context.Background(), truncated, fred.gptClient)
 	if err != nil {
+		fred.postErrorMessage(ev.Channel, ts)
 		return fmt.Errorf("failed creating chat completion: %v", err)
 	}
-	_, _, err = fred.slackClient.PostMessage(ev.Channel, slack.MsgOptionText(completion, false), slack.MsgOptionTS(ts))
-	if err != nil {
-		return fmt.Errorf("failed posting message: %v", err)
-	}
-	return nil
+	return fred.postOnThread(ev.Channel, completion, ts)
 }
 
 func (fred *Frederica) handleEventTypeEventsAPI(evt *socketmode.Event) error {
