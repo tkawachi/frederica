@@ -9,6 +9,9 @@ on:
   pull_request:
     branches: [ "main" ]
 
+permissions:
+  contents: read
+
 jobs:
 
   build:
@@ -27,10 +30,5 @@ jobs:
     - name: Test
       run: go test -v ./...
 
-  golangci:
-    permissions:
-      contents: read
-    runs-on: ubuntu-latest
-    steps:
     - name: Run golangci-lint
       uses: golangci/golangci-lint-action@v3.4.0
