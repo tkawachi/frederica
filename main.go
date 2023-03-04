@@ -157,9 +157,6 @@ func (fred *Frederica) handleMention(ev *slackevents.AppMentionEvent) error {
 	if err != nil {
 		return fmt.Errorf("failed creating chat completion: %v", err)
 	}
-
-	log.Printf("completion: %s", completion)
-
 	_, _, err = fred.slackClient.PostMessage(ev.Channel, slack.MsgOptionText(completion, false), slack.MsgOptionTS(ts))
 	if err != nil {
 		return fmt.Errorf("failed posting message: %v", err)
@@ -289,5 +286,7 @@ func createChatCompletion(ctx context.Context, messages []gogpt.ChatCompletionMe
 	if len(resp.Choices) == 0 {
 		return "", fmt.Errorf("no choices returned")
 	}
-	return resp.Choices[0].Message.Content, nil
+	completion := resp.Choices[0].Message.Content
+	log.Printf("completion: %s\n", completion)
+	return completion, nil
 }
