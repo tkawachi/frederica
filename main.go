@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strconv"
 
 	tokenizer "github.com/samber/go-gpt-3-encoder"
 	gogpt "github.com/sashabaranov/go-gpt3"
@@ -23,12 +24,14 @@ func FirstNonEmptyString(strings ...string) string {
 }
 
 type Frederica struct {
-	slackClient  *slack.Client
-	socketClient *socketmode.Client
-	gptClient    *gogpt.Client
-	encoder      *tokenizer.Encoder
-	botID        string
-	preludes     []gogpt.ChatCompletionMessage
+	slackClient    *slack.Client
+	socketClient   *socketmode.Client
+	gptClient      *gogpt.Client
+	gptTemperature float32
+	gptMaxTokens   int
+	gptEncoder     *tokenizer.Encoder
+	botID          string
+	preludes       []gogpt.ChatCompletionMessage
 }
 
 func convertConversation(messages []slack.Message, botID string) []gogpt.ChatCompletionMessage {
@@ -58,7 +61,7 @@ func (fred *Frederica) truncateMessages(messages []gogpt.ChatCompletionMessage, 
 	var totalTokens int
 	for i := len(messages) - 1; i >= 0; i-- {
 		content := messages[i].Content
-		encoded, err := fred.encoder.Encode(content)
+		encoded, err := fred.gptEncoder.Encode(content)
 		if err != nil {
 			return nil, fmt.Errorf("failed encoding message %s: %v", content, err)
 		}
@@ -136,7 +139,7 @@ func (fred *Frederica) handleOsieteAI(ev *slackevents.ReactionAddedEvent) error 
 		})
 	}
 	logMessages(truncated)
-	completion, err := createChatCompletion(context.Background(), truncated, fred.gptClient)
+	completion, err := fred.createChatCompletion(context.Background(), truncated)
 	if err != nil {
 		fred.postErrorMessage(channelID, ts)
 		return fmt.Errorf("failed creating chat completion: %v", err)
@@ -172,7 +175,7 @@ func (fred *Frederica) handleMention(ev *slackevents.AppMentionEvent) error {
 	// prepend prelude to truncated
 	truncated = append(fred.preludes, truncated...)
 	logMessages(truncated)
-	completion, err := createChatCompletion(context.Background(), truncated, fred.gptClient)
+	completion, err := fred.createChatCompletion(context.Background(), truncated)
 	if err != nil {
 		fred.postErrorMessage(ev.Channel, ts)
 		return fmt.Errorf("failed creating chat completion: %v", err)
@@ -232,8 +235,28 @@ func (fred *Frederica) eventLoop() {
 	}
 }
 
+func getEnvInt(key string, defaultValue int) (int, error) {
+	value, found := os.LookupEnv(key)
+	if !found {
+		return defaultValue, nil
+	}
+	return strconv.Atoi(value)
+}
+
+func getEnvFloat32(key string, defaultValue float32) (float32, error) {
+	value, found := os.LookupEnv(key)
+	if !found {
+		return defaultValue, nil
+	}
+	f, err := strconv.ParseFloat(value, 32)
+	if err != nil {
+		return 0, err
+	}
+	return float32(f), nil
+}
+
 func main() {
-	encoder, err := tokenizer.NewEncoder()
+	gptEncoder, err := tokenizer.NewEncoder()
 	if err != nil {
 		panic(err)
 	}
@@ -252,6 +275,15 @@ func main() {
 	slackAppToken := os.Getenv("SLACK_APP_TOKEN")
 	if slackAppToken == "" {
 		panic("SLACK_APP_TOKEN is not set")
+	}
+
+	gptTemperature, err := getEnvFloat32("GPT_TEMPERATURE", 0.5)
+	if err != nil {
+		panic(err)
+	}
+	gptMaxTokens, err := getEnvInt("GPT_MAX_TOKENS", 700)
+	if err != nil {
+		panic(err)
 	}
 
 	preludeMessage := gogpt.ChatCompletionMessage{
@@ -279,12 +311,14 @@ func main() {
 		panic(err)
 	}
 	fred := &Frederica{
-		slackClient:  slackClient,
-		socketClient: socketClient,
-		gptClient:    gptClient,
-		encoder:      encoder,
-		botID:        authTestResponse.BotID,
-		preludes:     []gogpt.ChatCompletionMessage{preludeMessage},
+		slackClient:    slackClient,
+		socketClient:   socketClient,
+		gptClient:      gptClient,
+		gptEncoder:     gptEncoder,
+		gptTemperature: gptTemperature,
+		gptMaxTokens:   gptMaxTokens,
+		botID:          authTestResponse.BotID,
+		preludes:       []gogpt.ChatCompletionMessage{preludeMessage},
 	}
 
 	go fred.eventLoop()
@@ -295,13 +329,14 @@ func main() {
 	}
 }
 
-func createChatCompletion(ctx context.Context, messages []gogpt.ChatCompletionMessage, c *gogpt.Client) (string, error) {
+func (fred *Frederica) createChatCompletion(ctx context.Context, messages []gogpt.ChatCompletionMessage) (string, error) {
 	req := gogpt.ChatCompletionRequest{
-		Model:     gogpt.GPT3Dot5Turbo,
-		MaxTokens: 700,
-		Messages:  messages,
+		Model:       gogpt.GPT3Dot5Turbo,
+		MaxTokens:   fred.gptMaxTokens,
+		Temperature: fred.gptTemperature,
+		Messages:    messages,
 	}
-	resp, err := c.CreateChatCompletion(ctx, req)
+	resp, err := fred.gptClient.CreateChatCompletion(ctx, req)
 	if err != nil {
 		return "", fmt.Errorf("failed creating chat completion: %w", err)
 	}
