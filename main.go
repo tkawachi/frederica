@@ -21,13 +21,13 @@ func FirstNonEmptyString(strings ...string) string {
 	return ""
 }
 
-func convertConversation(messages []slack.Message, botId string) []gogpt.ChatCompletionMessage {
+func convertConversation(messages []slack.Message, botID string) []gogpt.ChatCompletionMessage {
 	var conversation []gogpt.ChatCompletionMessage
 	for _, msg := range messages {
 		if msg.User == "" || msg.Text == "" {
 			continue
 		}
-		if msg.BotID == botId {
+		if msg.BotID == botID {
 			conversation = append(conversation, gogpt.ChatCompletionMessage{
 				Role:    "assistant",
 				Content: msg.Text,
@@ -55,9 +55,9 @@ func truncateMessages(messages []gogpt.ChatCompletionMessage, maxTokens int) []g
 	return messages
 }
 
-func getLatestMessages(slackApi *slack.Client, channelID, ts, botID string, maxTokens int) ([]gogpt.ChatCompletionMessage, error) {
+func getLatestMessages(slackAPI *slack.Client, channelID, ts, botID string, maxTokens int) ([]gogpt.ChatCompletionMessage, error) {
 	log.Println("getting replies", channelID, ts)
-	replies, _, _, err := slackApi.GetConversationReplies(&slack.GetConversationRepliesParameters{
+	replies, _, _, err := slackAPI.GetConversationReplies(&slack.GetConversationRepliesParameters{
 		ChannelID: channelID,
 		Timestamp: ts,
 	})
@@ -75,8 +75,8 @@ func getLatestMessages(slackApi *slack.Client, channelID, ts, botID string, maxT
 	return truncateMessages(converted, maxTokens), nil
 }
 
-func getMessage(slackApi *slack.Client, channelID, ts string) (*slack.Message, error) {
-	replies, _, _, err := slackApi.GetConversationReplies(&slack.GetConversationRepliesParameters{
+func getMessage(slackAPI *slack.Client, channelID, ts string) (*slack.Message, error) {
+	replies, _, _, err := slackAPI.GetConversationReplies(&slack.GetConversationRepliesParameters{
 		ChannelID: channelID,
 		Timestamp: ts,
 		Limit:     1,
@@ -156,8 +156,8 @@ func handleMention(slackAPI *slack.Client, gptClient *gogpt.Client, ev *slackeve
 
 func main() {
 	// read from environmental variable
-	openaiApiKey := os.Getenv("OPENAI_API_KEY")
-	if openaiApiKey == "" {
+	openaiAPIKey := os.Getenv("OPENAI_API_KEY")
+	if openaiAPIKey == "" {
 		panic("OPENAI_API_KEY is not set")
 	}
 
@@ -189,7 +189,7 @@ func main() {
 		socketmode.OptionLog(log.New(os.Stdout, "socketmode: ", log.Lshortfile|log.LstdFlags)),
 	)
 
-	gptClient := gogpt.NewClient(openaiApiKey)
+	gptClient := gogpt.NewClient(openaiAPIKey)
 
 	authTestResponse, err := slackClient.AuthTest()
 	if err != nil {
