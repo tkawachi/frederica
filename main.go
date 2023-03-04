@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"log"
+	"math/rand"
 	"os"
 	"strconv"
 
@@ -141,8 +142,9 @@ func (fred *Frederica) handleOsieteAI(ev *slackevents.ReactionAddedEvent) error 
 	logMessages(truncated)
 	completion, err := fred.createChatCompletion(context.Background(), truncated)
 	if err != nil {
-		fred.postErrorMessage(channelID, ts)
-		return fmt.Errorf("failed creating chat completion: %v", err)
+		traceID := generateTraceID()
+		fred.postErrorMessage(channelID, ts, traceID)
+		return fmt.Errorf("failed creating chat completion %s: %v", traceID, err)
 	}
 	completion = fmt.Sprintf("<@%s>\n\n%s", ev.User, completion)
 	return fred.postOnThread(channelID, completion, ts)
@@ -156,8 +158,23 @@ func (fred *Frederica) postOnThread(channelID, message, ts string) error {
 	return nil
 }
 
-func (fred *Frederica) postErrorMessage(channelID, ts string) {
-	err := fred.postOnThread(channelID, "Failed to access OpenAI API. Try again later.", ts)
+// エラーを追跡するための ID を生成する。
+// この ID はエラーが発生したときにユーザーに伝える。
+func generateTraceID() string {
+	// ランダムな6文字の文字列を生成
+	n := 6
+	letters := []rune("abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789")
+	b := make([]rune, n)
+	for i := range b {
+		b[i] = letters[rand.Intn(len(letters))]
+	}
+	return string(b)
+}
+
+// postErrorMessage posts an error message on the thread
+func (fred *Frederica) postErrorMessage(channelID, ts string, traceID string) {
+	message := fmt.Sprintf("エラーが発生しました。また後で試してね。 %s", traceID)
+	err := fred.postOnThread(channelID, message, ts)
 	if err != nil {
 		log.Printf("failed to access OpenAI API: %v\n", err)
 	}
@@ -177,8 +194,9 @@ func (fred *Frederica) handleMention(ev *slackevents.AppMentionEvent) error {
 	logMessages(truncated)
 	completion, err := fred.createChatCompletion(context.Background(), truncated)
 	if err != nil {
-		fred.postErrorMessage(ev.Channel, ts)
-		return fmt.Errorf("failed creating chat completion: %v", err)
+		traceID := generateTraceID()
+		fred.postErrorMessage(ev.Channel, ts, traceID)
+		return fmt.Errorf("failed creating chat completion %s: %v", traceID, err)
 	}
 	return fred.postOnThread(ev.Channel, completion, ts)
 }
