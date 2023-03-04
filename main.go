@@ -99,9 +99,11 @@ func (fred *Frederica) getMessage(channelID, ts string) (*slack.Message, error) 
 }
 
 func logMessages(messages []gogpt.ChatCompletionMessage) {
+	log.Println("-----MESSAGES_BEGIN-----")
 	for _, msg := range messages {
 		log.Printf("%s: %s", msg.Role, msg.Content)
 	}
+	log.Println("-----MESSAGES_END-----")
 }
 
 func (fred *Frederica) handleOsieteAI(ev *slackevents.ReactionAddedEvent) error {
@@ -119,10 +121,13 @@ func (fred *Frederica) handleOsieteAI(ev *slackevents.ReactionAddedEvent) error 
 	}
 	// prepend prelude to truncated
 	truncated = append(fred.preludes, truncated...)
-	truncated = append(truncated, gogpt.ChatCompletionMessage{
-		Role:    "user",
-		Content: srcMessage.Text,
-	})
+	// append reaction message if it's not located at the end
+	if len(truncated) == 0 || truncated[len(truncated)-1].Content != srcMessage.Text {
+		truncated = append(truncated, gogpt.ChatCompletionMessage{
+			Role:    "user",
+			Content: srcMessage.Text,
+		})
+	}
 	logMessages(truncated)
 	completion, err := createChatCompletion(context.Background(), truncated, fred.gptClient)
 	if err != nil {
