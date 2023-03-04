@@ -116,7 +116,7 @@ func handleOsieteAI(slackAPI *slack.Client, gptClient *gogpt.Client, ev *slackev
 		Content: srcMessage.Text,
 	})
 	logMessages(truncated)
-	completion, err := createChatCompletion(truncated, context.Background(), gptClient)
+	completion, err := createChatCompletion(context.Background(), truncated, gptClient)
 	if err != nil {
 		return fmt.Errorf("failed creating chat completion: %v", err)
 	}
@@ -140,7 +140,7 @@ func handleMention(slackAPI *slack.Client, gptClient *gogpt.Client, ev *slackeve
 	// prepend prelude to truncated
 	truncated = append([]gogpt.ChatCompletionMessage{preludeMessage}, truncated...)
 	logMessages(truncated)
-	completion, err := createChatCompletion(truncated, context.Background(), gptClient)
+	completion, err := createChatCompletion(context.Background(), truncated, gptClient)
 	if err != nil {
 		return fmt.Errorf("failed creating chat completion: %v", err)
 	}
@@ -240,7 +240,7 @@ func main() {
 			case socketmode.EventTypeConnected:
 				fmt.Println("Connected to Slack with Socket Mode.")
 			case socketmode.EventTypeEventsAPI:
-				err := handleEventTypeEventsAPI(slackAPI, slackClient, gptClient, &evt, preludeMessage, authTestResponse.BotID)
+				err = handleEventTypeEventsAPI(slackAPI, slackClient, gptClient, &evt, preludeMessage, authTestResponse.BotID)
 				if err != nil {
 					log.Printf("failed handling event type events api: %v\n", err)
 					continue
@@ -254,7 +254,7 @@ func main() {
 	}
 }
 
-func createChatCompletion(messages []gogpt.ChatCompletionMessage, ctx context.Context, c *gogpt.Client) (string, error) {
+func createChatCompletion(ctx context.Context, messages []gogpt.ChatCompletionMessage, c *gogpt.Client) (string, error) {
 	req := gogpt.ChatCompletionRequest{
 		Model:     gogpt.GPT3Dot5Turbo,
 		MaxTokens: 700,
