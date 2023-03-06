@@ -33,6 +33,7 @@ type Frederica struct {
 	gptMaxTokens   int
 	gptEncoder     *tokenizer.Encoder
 	botID          string
+	botUserID      string
 	preludes       []gogpt.ChatCompletionMessage
 }
 
@@ -186,7 +187,7 @@ func (fred *Frederica) postErrorMessage(channelID, ts string, traceID string) {
 }
 
 func (fred *Frederica) handleMention(ev *slackevents.AppMentionEvent) error {
-	if ev.BotID == fred.botID {
+	if ev.BotID == fred.botID || ev.User == fred.botUserID {
 		return nil
 	}
 	ts := FirstNonEmptyString(ev.ThreadTimeStamp, ev.TimeStamp)
@@ -219,16 +220,10 @@ func (fred *Frederica) handleEventTypeEventsAPI(evt *socketmode.Event) error {
 		innerEvent := eventsAPIEvent.InnerEvent
 		switch ev := innerEvent.Data.(type) {
 		case *slackevents.AppMentionEvent:
-			err := fred.handleMention(ev)
-			if err != nil {
-				return fmt.Errorf("failed handling mention: %v", err)
-			}
+			return fred.handleMention(ev)
 		case *slackevents.ReactionAddedEvent:
 			if ev.Item.Type == "message" && ev.Reaction == "osiete_ai" {
-				err := fred.handleOsieteAI(ev)
-				if err != nil {
-					return fmt.Errorf("failed handling osiete_ai: %v", err)
-				}
+				return fred.handleOsieteAI(ev)
 			}
 		case *slackevents.MemberJoinedChannelEvent:
 			fmt.Printf("user %q joined to channel %q", ev.User, ev.Channel)
@@ -341,6 +336,7 @@ func main() {
 		gptTemperature: gptTemperature,
 		gptMaxTokens:   gptMaxTokens,
 		botID:          authTestResponse.BotID,
+		botUserID:      authTestResponse.UserID,
 		preludes:       []gogpt.ChatCompletionMessage{preludeMessage},
 	}
 
