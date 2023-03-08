@@ -304,10 +304,12 @@ func main() {
 		panic(err)
 	}
 
-	preludeMessage := gogpt.ChatCompletionMessage{
-		Role:    "system",
-		Content: "assistant の名前はフレデリカです",
+	systemMessage, found := os.LookupEnv("SYSTEM_MESSAGE")
+	if !found {
+		systemMessage = "assistant の名前はフレデリカです"
 	}
+
+	preludeMessage := gogpt.ChatCompletionMessage{Role: "system", Content: systemMessage,}
 
 	slackClient := slack.New(
 		botToken,
@@ -349,6 +351,10 @@ func main() {
 }
 
 func (fred *Frederica) createChatCompletion(ctx context.Context, messages []gogpt.ChatCompletionMessage) (string, error) {
+	// check if last message is from assistant
+	if len(messages) > 0 && messages[len(messages)-1].Role == "assistant" {
+		return "", fmt.Errorf("last message is from assistant")
+	}
 	req := gogpt.ChatCompletionRequest{
 		Model:       gogpt.GPT3Dot5Turbo,
 		MaxTokens:   fred.gptMaxTokens,
