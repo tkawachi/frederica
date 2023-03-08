@@ -119,18 +119,20 @@ func logMessages(messages []gogpt.ChatCompletionMessage) {
 	log.Println("-----MESSAGES_END-----")
 }
 
-func (fred *Frederica) handleOsieteAI(ev *slackevents.ReactionAddedEvent) error {
+func (fred *Frederica) handleOsieteAI(ev *slackevents.ReactionAddedEvent) {
 
 	channelID := ev.Item.Channel
 	srcMessage, err := fred.getMessage(channelID, ev.Item.Timestamp)
 	if err != nil {
-		return fmt.Errorf("failed getting message: %v", err)
+		log.Printf("ERROR: failed getting message: %v\n", err)
+		return
 	}
 
 	ts := FirstNonEmptyString(srcMessage.ThreadTimestamp, srcMessage.Timestamp)
 	truncated, err := fred.getLatestMessages(channelID, ts, 3000)
 	if err != nil {
-		return fmt.Errorf("failed getting latest messages: %v", err)
+		log.Printf("ERROR: failed getting latest messages: %v\n", err)
+		return
 	}
 	// prepend prelude to truncated
 	truncated = append(fred.preludes, truncated...)
@@ -146,10 +148,15 @@ func (fred *Frederica) handleOsieteAI(ev *slackevents.ReactionAddedEvent) error 
 	if err != nil {
 		traceID := generateTraceID()
 		fred.postErrorMessage(channelID, ts, traceID)
-		return fmt.Errorf("failed creating chat completion %s: %v", traceID, err)
+		log.Printf("ERROR: failed creating chat completion %s: %v\n", traceID, err)
+		return
 	}
 	completion = fmt.Sprintf("<@%s>\n\n%s", ev.User, completion)
-	return fred.postOnThread(channelID, completion, ts)
+	err = fred.postOnThread(channelID, completion, ts)
+	if err != nil {
+		log.Printf("ERROR: failed posting message: %v\n", err)
+		return
+	}
 }
 
 func (fred *Frederica) postOnThread(channelID, message, ts string) error {
@@ -186,14 +193,15 @@ func (fred *Frederica) postErrorMessage(channelID, ts string, traceID string) {
 	}
 }
 
-func (fred *Frederica) handleMention(ev *slackevents.AppMentionEvent) error {
+func (fred *Frederica) handleMention(ev *slackevents.AppMentionEvent) {
 	if ev.BotID == fred.botID || ev.User == fred.botUserID {
-		return nil
+		return
 	}
 	ts := FirstNonEmptyString(ev.ThreadTimeStamp, ev.TimeStamp)
 	truncated, err := fred.getLatestMessages(ev.Channel, ts, 3000)
 	if err != nil {
-		return fmt.Errorf("failed getting latest messages: %v", err)
+		log.Printf("ERROR: failed getting latest messages: %v\n", err)
+		return
 	}
 	// prepend prelude to truncated
 	truncated = append(fred.preludes, truncated...)
@@ -202,9 +210,14 @@ func (fred *Frederica) handleMention(ev *slackevents.AppMentionEvent) error {
 	if err != nil {
 		traceID := generateTraceID()
 		fred.postErrorMessage(ev.Channel, ts, traceID)
-		return fmt.Errorf("failed creating chat completion %s: %v", traceID, err)
+		log.Printf("ERROR: failed creating chat completion %s: %v\n", traceID, err)
+		return
 	}
-	return fred.postOnThread(ev.Channel, completion, ts)
+	err = fred.postOnThread(ev.Channel, completion, ts)
+	if err != nil {
+		log.Printf("ERROR: failed posting message: %v\n", err)
+		return
+	}
 }
 
 func (fred *Frederica) handleEventTypeEventsAPI(evt *socketmode.Event) error {
@@ -220,10 +233,10 @@ func (fred *Frederica) handleEventTypeEventsAPI(evt *socketmode.Event) error {
 		innerEvent := eventsAPIEvent.InnerEvent
 		switch ev := innerEvent.Data.(type) {
 		case *slackevents.AppMentionEvent:
-			return fred.handleMention(ev)
+			go fred.handleMention(ev)
 		case *slackevents.ReactionAddedEvent:
 			if ev.Item.Type == "message" && ev.Reaction == "osiete_ai" {
-				return fred.handleOsieteAI(ev)
+				go fred.handleOsieteAI(ev)
 			}
 		case *slackevents.MemberJoinedChannelEvent:
 			fmt.Printf("user %q joined to channel %q", ev.User, ev.Channel)
@@ -309,7 +322,7 @@ func main() {
 		systemMessage = "assistant の名前はフレデリカです"
 	}
 
-	preludeMessage := gogpt.ChatCompletionMessage{Role: "system", Content: systemMessage,}
+	preludeMessage := gogpt.ChatCompletionMessage{Role: "system", Content: systemMessage}
 
 	slackClient := slack.New(
 		botToken,
@@ -351,10 +364,6 @@ func main() {
 }
 
 func (fred *Frederica) createChatCompletion(ctx context.Context, messages []gogpt.ChatCompletionMessage) (string, error) {
-	// check if last message is from assistant
-	if len(messages) > 0 && messages[len(messages)-1].Role == "assistant" {
-		return "", fmt.Errorf("last message is from assistant")
-	}
 	req := gogpt.ChatCompletionRequest{
 		Model:       gogpt.GPT3Dot5Turbo,
 		MaxTokens:   fred.gptMaxTokens,
