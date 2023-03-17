@@ -10,7 +10,7 @@ import (
 	"strconv"
 
 	tokenizer "github.com/samber/go-gpt-3-encoder"
-	gogpt "github.com/sashabaranov/go-gpt3"
+	gogpt "github.com/sashabaranov/go-openai"
 	"github.com/slack-go/slack"
 	"github.com/slack-go/slack/slackevents"
 	"github.com/slack-go/slack/socketmode"
@@ -365,7 +365,7 @@ func main() {
 
 func (fred *Frederica) createChatCompletion(ctx context.Context, messages []gogpt.ChatCompletionMessage) (string, error) {
 	req := gogpt.ChatCompletionRequest{
-		Model:       gogpt.GPT3Dot5Turbo,
+		Model:       gogpt.GPT4,
 		MaxTokens:   fred.gptMaxTokens,
 		Temperature: fred.gptTemperature,
 		Messages:    messages,
