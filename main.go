@@ -29,6 +29,7 @@ type Frederica struct {
 	slackClient    *slack.Client
 	socketClient   *socketmode.Client
 	gptClient      *gogpt.Client
+	gptModel       string
 	gptTemperature float32
 	gptMaxTokens   int
 	gptEncoder     *tokenizer.Encoder
@@ -308,6 +309,11 @@ func main() {
 		panic("SLACK_APP_TOKEN is not set")
 	}
 
+	gptModel, found := os.LookupEnv("GPT_MODEL")
+	if !found {
+		gptModel = gogpt.GPT4
+	}
+
 	gptTemperature, err := getEnvFloat32("GPT_TEMPERATURE", 0.5)
 	if err != nil {
 		panic(err)
@@ -347,6 +353,7 @@ func main() {
 		slackClient:    slackClient,
 		socketClient:   socketClient,
 		gptClient:      gptClient,
+		gptModel:       gptModel,
 		gptEncoder:     gptEncoder,
 		gptTemperature: gptTemperature,
 		gptMaxTokens:   gptMaxTokens,
@@ -365,7 +372,7 @@ func main() {
 
 func (fred *Frederica) createChatCompletion(ctx context.Context, messages []gogpt.ChatCompletionMessage) (string, error) {
 	req := gogpt.ChatCompletionRequest{
-		Model:       gogpt.GPT4,
+		Model:       fred.gptModel,
 		MaxTokens:   fred.gptMaxTokens,
 		Temperature: fred.gptTemperature,
 		Messages:    messages,
