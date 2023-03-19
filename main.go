@@ -313,6 +313,7 @@ func main() {
 	if !found {
 		gptModel = gogpt.GPT4
 	}
+	log.Println("GPT_MODEL:", gptModel)
 
 	gptTemperature, err := getEnvFloat32("GPT_TEMPERATURE", 0.5)
 	if err != nil {
