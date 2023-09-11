@@ -344,7 +344,16 @@ func main() {
 		socketmode.OptionLog(log.New(os.Stdout, "socketmode: ", log.Lshortfile|log.LstdFlags)),
 	)
 
-	gptClient := gogpt.NewClient(openaiAPIKey)
+	var gptClient *gogpt.Client
+	azureBaseUrl, found := os.LookupEnv("AZURE_BASE_URL")
+	if found {
+		config := gogpt.DefaultAzureConfig(openaiAPIKey, azureBaseUrl)
+		// Treat model as deployment name
+		config.AzureModelMapperFunc = func(model string) string { return model }
+		gptClient = gogpt.NewClientWithConfig(config)
+	} else {
+		gptClient = gogpt.NewClient(openaiAPIKey)
+	}
 
 	authTestResponse, err := slackClient.AuthTest()
 	if err != nil {
