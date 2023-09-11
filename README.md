@@ -9,7 +9,8 @@ Slack bot using OpenAI API.
 - `BOT_TOKEN`: Slack bot token
 - `SLACK_APP_TOKEN`: Slack app token
 - `OPENAI_API_KEY`: OpenAI API key
-- `GPT_MODEL`: GPT model ID (default: `gpt-4`)
+- `GPT_MODEL`: GPT model ID (default: `gpt-4`). If `AZURE_BASE_URL` is set, this is treated as a deployment name.
 - `GPT_TEMPERATURE`: GPT temperature (default: `0.5`)
 - `GPT_MAX_TOKENS`: GPT max tokens (default: `700`)
 - `SYSTEM_MESSAGE`: System message (default: `assistant の名前はフレデリカです`)
+- `AZURE_BASE_URL`: Azure OpenAI Service base URL (ex. `https://foo.openai.azure.com/`)
